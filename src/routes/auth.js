@@ -9,6 +9,11 @@ import { logEvent } from '../services/events.js';
 import { usertypeById } from '../services/rbac.js';
 import { badRequest, conflict, forbidden, HttpError, parse, unauthorized } from '../utils/http.js';
 import { normLocale } from '../services/mailer.js';
+import { env } from '../config/env.js';
+
+// With email disabled the reset code would be the public fallback code, so reset must be off.
+const requireMail = (_req, _res, next) =>
+  next(env.mailEnabled ? undefined : new HttpError(503, 'Password reset by email is currently unavailable. Please contact an administrator.', 'PASSWORD_RESET_UNAVAILABLE'));
 
 const r = Router();
 r.use(authLimiter);
@@ -99,7 +104,7 @@ r.post('/login', async (req, res) => {
   res.json(await session(user));
 });
 
-r.post('/forgot-password', async (req, res) => {
+r.post('/forgot-password', requireMail, async (req, res) => {
   const data = parse(z.object({ email, locale }), req.body);
   const user = await findByEmail(data.email);
   if (user?.is_verified && user.is_active) {
@@ -112,7 +117,7 @@ r.post('/forgot-password', async (req, res) => {
   res.json({ ok: true });
 });
 
-r.post('/reset-password', async (req, res) => {
+r.post('/reset-password', requireMail, async (req, res) => {
   const data = parse(z.object({ email, code, password }), req.body);
   const user = await findByEmail(data.email);
   if (!user) throw badRequest('Incorrect code', 'OTP_INVALID');

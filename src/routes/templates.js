@@ -8,6 +8,7 @@ import { logEvent } from '../services/events.js';
 import { readFile } from '../services/storage.js';
 import { sendPdf } from '../services/documents.js';
 import { notFound, parse, randomToken } from '../utils/http.js';
+import { env } from '../config/env.js';
 
 const r = Router();
 r.use(requireAuth);
@@ -54,7 +55,7 @@ r.post('/:id/send', requirePermission('template.share'), async (req, res) => {
     })),
   );
   await logEvent({ req, type: 'template.sent', entityId: tpl.id, meta: { recipients: emails.length } });
-  res.json({ results });
+  res.json({ results, mailEnabled: env.mailEnabled });
 });
 
 r.get('/:id/submissions', requirePermission('submission.read'), async (req, res) => {

@@ -142,6 +142,11 @@ const button = (href, label) =>
   `<a href="${esc(href)}" style="display:inline-block;margin:18px 0;padding:12px 22px;border-radius:12px;background:#5b6cff;color:#fff;text-decoration:none;font-weight:600">${esc(label)}</a>`;
 
 async function send({ to, subject, html, text, kind = 'notify' }) {
+  if (!env.mailEnabled) {
+    // Email is switched off (MAIL_ENABLED=false). Everything above stays ready for when it's turned back on.
+    console.log(`[mail] disabled — skipped "${subject}" to ${to}`);
+    return false;
+  }
   try {
     await deliver({ from: senderFor(kind), to, subject, html, text });
     return true;

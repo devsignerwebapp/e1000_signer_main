@@ -11,9 +11,20 @@ import { sendPdf } from '../services/documents.js';
 import { logEvent } from '../services/events.js';
 import { badRequest, notFound, parse } from '../utils/http.js';
 import { placementSchema } from './documents.js';
+import { env } from '../config/env.js';
 
 const r = Router();
 r.use(publicLimiter);
+
+// Feature flags the web app needs before login (e.g. whether confirmation emails are sent).
+r.get('/config', (_req, res) => {
+  res.json({
+    mailEnabled: env.mailEnabled,
+    passwordReset: env.mailEnabled,
+    // Only revealed while email is off — it is the code every new user must type.
+    otpFallbackCode: env.mailEnabled ? null : env.otpFallbackCode,
+  });
+});
 
 r.get('/sign/:token', async (req, res) => {
   const t = await getActiveTemplateByToken(req.params.token);

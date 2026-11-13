@@ -21,15 +21,17 @@ export async function issueOtp(user, purpose = 'register', lang) {
       });
     }
   }
-  const code = fourDigits();
+  // Email disabled → fixed code (e.g. "0000") that the UI tells the user to enter. Real emails: random code.
+  const code = env.mailEnabled ? fourDigits() : env.otpFallbackCode;
   // Invalidate previous unused codes for the same purpose.
   await query(`UPDATE email_otps SET consumed_at=now() WHERE user_id=$1 AND purpose=$2 AND consumed_at IS NULL`, [user.id, purpose]);
   await query(
     `INSERT INTO email_otps(user_id,purpose,code_hash,expires_at) VALUES ($1,$2,$3, now() + ($4 || ' minutes')::interval)`,
     [user.id, purpose, await bcrypt.hash(code, 8), String(env.otpTtlMinutes)],
   );
+  // When email is disabled, sendOtpEmail returns false immediately (see mailer.send).
   const sent = await sendOtpEmail({ to: user.email, name: user.full_name, code, purpose, lang: lang || user.locale });
-  return { sent, expiresInMinutes: env.otpTtlMinutes, resendAfter: env.otpResendCooldown };
+  return { sent, mailEnabled: env.mailEnabled, expiresInMinutes: env.otpTtlMinutes, resendAfter: env.otpResendCooldown };
 }
 
 /** Verify and consume the latest active OTP; throws on failure. */

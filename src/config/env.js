@@ -41,6 +41,12 @@ export const env = {
   otpMaxAttempts: num(process.env.OTP_MAX_ATTEMPTS, 5),
   otpResendCooldown: num(process.env.OTP_RESEND_COOLDOWN_SECONDS, 60),
 
+  // Master email switch. When false (e.g. hosting without email), nothing is sent: confirmation
+  // codes become the fixed OTP_FALLBACK_CODE (shown in the UI), and password reset by email is disabled.
+  // Set MAIL_ENABLED=true (and configure MAIL_TRANSPORT below) to turn real emails back on.
+  mailEnabled: bool(process.env.MAIL_ENABLED, true),
+  otpFallbackCode: /^\d{4}$/.test(process.env.OTP_FALLBACK_CODE || '') ? process.env.OTP_FALLBACK_CODE : '0000',
+
   smtp: {
     host: process.env.SMTP_HOST || 'smtp.gmail.com',
     port: num(process.env.SMTP_PORT, 465),
