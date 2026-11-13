@@ -4,7 +4,7 @@ import { env } from '../config/env.js';
 import { badRequest, notFound, parse, randomToken } from '../utils/http.js';
 import { getOwnedDocument } from './documents.js';
 import { logEvent } from './events.js';
-import { stampPdf } from './pdf.js';
+import { decodeImage, stampPdf } from './pdf.js';
 import { readFile, saveFile } from './storage.js';
 import { fireWebhook } from './webhooks.js';
 import { sendSubmissionNotice } from './mailer.js';
@@ -21,12 +21,25 @@ export const fieldSchema = z.object({
   required: z.boolean().default(true),
 });
 
+// Items the template owner signs in advance (their own signature / text / date).
+const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+export const ownerPlacementSchema = z
+  .object({
+    page: z.number().int().min(0),
+    x: ratio, y: ratio, w: ratio.refine((v) => v > 0), h: ratio.refine((v) => v > 0),
+    image: z.string().min(20).optional(),
+    text: z.string().trim().min(1).max(500).optional(),
+    color: hex.optional(),
+  })
+  .refine((p) => !!p.image !== !!p.text, 'Each sender item needs either an image or a text');
+
 export const templateSchema = z.object({
   documentId: z.uuid(),
   name: z.string().trim().min(1).max(200),
   message: z.string().max(2000).optional().nullable(),
   allowedSignTypes: z.array(z.enum(SIGN_TYPES)).min(1).default(SIGN_TYPES),
   fields: z.array(fieldSchema).min(1, 'Add at least one field').max(100),
+  ownerPlacements: z.array(ownerPlacementSchema).max(50).default([]),
 });
 
 export const shareUrl = (token) => `${env.webPublicUrl}/sign/${token}`;
@@ -38,6 +51,7 @@ export const templateDto = (t) => ({
   message: t.message,
   allowedSignTypes: t.allowed_sign_types,
   fields: t.fields,
+  ownerPlacements: t.owner_placements || [],
   shareToken: t.share_token,
   shareUrl: shareUrl(t.share_token),
   isActive: t.is_active,
@@ -59,6 +73,14 @@ export const submissionDto = (s) => ({
   createdAt: s.created_at,
 });
 
+function checkOwnerPlacements(items, pageCount) {
+  for (const p of items) {
+    if (p.page >= pageCount) throw badRequest(`A sender item is on page ${p.page + 1}, but the document has ${pageCount} pages`);
+    if (p.x + p.w > 1.001 || p.y + p.h > 1.001) throw badRequest('A sender item is outside the page');
+    if (p.image) decodeImage(p.image); // validates PNG/JPEG + size
+  }
+}
+
 function checkFieldsWithinDoc(fields, pageCount) {
   for (const f of fields) {
     if (f.page >= pageCount) throw badRequest(`Field "${f.label || f.id}" is on page ${f.page + 1}, but the document has ${pageCount} pages`);
@@ -75,12 +97,13 @@ export async function createTemplate({ req, body }) {
   const data = parse(templateSchema, body);
   const doc = await getOwnedDocument(req.user.id, data.documentId);
   checkFieldsWithinDoc(data.fields, doc.page_count);
+  checkOwnerPlacements(data.ownerPlacements, doc.page_count);
   const { rows } = await query(
-    `INSERT INTO templates(owner_id,document_id,name,message,allowed_sign_types,fields,share_token)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-    [req.user.id, doc.id, data.name, data.message || null, data.allowedSignTypes, JSON.stringify(data.fields), randomToken(18)],
+    `INSERT INTO templates(owner_id,document_id,name,message,allowed_sign_types,fields,owner_placements,share_token)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+    [req.user.id, doc.id, data.name, data.message || null, data.allowedSignTypes, JSON.stringify(data.fields), JSON.stringify(data.ownerPlacements), randomToken(18)],
   );
-  await logEvent({ req, type: 'template.created', entityId: rows[0].id, meta: { fields: data.fields.length } });
+  await logEvent({ req, type: 'template.created', entityId: rows[0].id, meta: { fields: data.fields.length, senderItems: data.ownerPlacements.length } });
   return getOwnedTemplate(req.user.id, rows[0].id);
 }
 
@@ -97,18 +120,30 @@ export async function getOwnedTemplate(userId, id) {
 }
 
 export async function updateTemplate({ req, tpl, body }) {
-  const data = parse(templateSchema.partial().omit({ documentId: true }).extend({ isActive: z.boolean().optional() }), body);
+  const data = parse(templateSchema.partial().omit({ documentId: true }).extend({ isActive: z.boolean().optional(), ownerPlacements: z.array(ownerPlacementSchema).max(50).optional() }), body);
   if (data.fields) checkFieldsWithinDoc(data.fields, tpl.page_count);
+  if (data.ownerPlacements) checkOwnerPlacements(data.ownerPlacements, tpl.page_count);
   await query(
     `UPDATE templates SET
        name=COALESCE($2,name), message=CASE WHEN $3::boolean THEN $4 ELSE message END,
        allowed_sign_types=COALESCE($5,allowed_sign_types), fields=COALESCE($6,fields),
-       is_active=COALESCE($7,is_active), updated_at=now()
+       is_active=COALESCE($7,is_active), owner_placements=COALESCE($8,owner_placements), updated_at=now()
      WHERE id=$1`,
-    [tpl.id, data.name ?? null, data.message !== undefined, data.message ?? null, data.allowedSignTypes ?? null, data.fields ? JSON.stringify(data.fields) : null, data.isActive ?? null],
+    [tpl.id, data.name ?? null, data.message !== undefined, data.message ?? null, data.allowedSignTypes ?? null, data.fields ? JSON.stringify(data.fields) : null, data.isActive ?? null, data.ownerPlacements ? JSON.stringify(data.ownerPlacements) : null],
   );
   await logEvent({ req, type: 'template.updated', entityId: tpl.id });
   return getOwnedTemplate(req.user.id, tpl.id);
+}
+
+/** Every client submission across the owner's templates (Documents → "Signed by clients"). */
+export async function listOwnerSubmissions(userId, { limit = 200, offset = 0 } = {}) {
+  const { rows } = await query(
+    `SELECT s.*, t.name AS template_name, d.title AS document_title, d.page_count
+     FROM submissions s JOIN templates t ON t.id=s.template_id JOIN documents d ON d.id=t.document_id
+     WHERE t.owner_id=$1 ORDER BY s.created_at DESC LIMIT $2 OFFSET $3`,
+    [userId, limit, offset],
+  );
+  return rows;
 }
 
 export async function listSubmissions(templateId) {
@@ -140,7 +175,8 @@ const submitSchema = z.object({
 
 export async function submitTemplate({ req, tpl, body }) {
   const data = parse(submitSchema, body);
-  const placements = [];
+  // Sender's own signature/text/date items go onto every signed copy.
+  const placements = (tpl.owner_placements || []).map(({ page, x, y, w, h, image, text, color }) => ({ page, x, y, w, h, image, text, color }));
   const typesUsed = new Set();
   for (const f of tpl.fields) {
     const v = data.values[f.id];
@@ -161,7 +197,7 @@ export async function submitTemplate({ req, tpl, body }) {
       placements.push({ page: f.page, x: f.x, y: f.y, w: f.w, h: f.h, text: v.text, color: v.color });
     }
   }
-  if (!placements.length) throw badRequest('Nothing to sign', 'NO_PLACEMENTS');
+  if (placements.length === (tpl.owner_placements || []).length) throw badRequest('Nothing to sign', 'NO_PLACEMENTS');
 
   const signed = await stampPdf(await readFile(tpl.file_path), placements);
   const rel = await saveFile('signed', signed);

@@ -38,6 +38,7 @@ r.get('/sign/:token', async (req, res) => {
       ownerCompany: t.owner_company,
       allowedSignTypes: t.allowed_sign_types,
       fields: t.fields,
+      ownerPlacements: t.owner_placements || [],
       pageCount: t.page_count,
     },
   });

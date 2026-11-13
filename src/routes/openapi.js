@@ -51,7 +51,7 @@ export function openapiSpec() {
         },
         Template: {
           type: 'object',
-          properties: { id: { type: 'string' }, documentId: { type: 'string' }, name: { type: 'string' }, message: { type: 'string' }, allowedSignTypes: { type: 'array', items: { type: 'string', enum: ['draw', 'type', 'upload'] } }, fields: { type: 'array', items: ref('Field') }, shareUrl: { type: 'string' }, isActive: { type: 'boolean' }, submissionCount: { type: 'integer' } },
+          properties: { id: { type: 'string' }, documentId: { type: 'string' }, name: { type: 'string' }, message: { type: 'string' }, allowedSignTypes: { type: 'array', items: { type: 'string', enum: ['draw', 'type', 'upload'] } }, fields: { type: 'array', items: ref('Field') }, ownerPlacements: { type: 'array', items: ref('Placement'), description: "Sender's own pre-signed items (signature image / text / date), stamped on every submission" }, shareUrl: { type: 'string' }, isActive: { type: 'boolean' }, submissionCount: { type: 'integer' } },
         },
         Submission: {
           type: 'object',

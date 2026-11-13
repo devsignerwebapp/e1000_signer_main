@@ -2,12 +2,12 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
-import { createTemplate, getOwnedTemplate, listSubmissions, listTemplates, shareUrl, submissionDto, templateDto, updateTemplate } from '../services/templates.js';
+import { createTemplate, getOwnedTemplate, listOwnerSubmissions, listSubmissions, listTemplates, shareUrl, submissionDto, templateDto, updateTemplate } from '../services/templates.js';
 import { normLocale, sendTemplateInvite } from '../services/mailer.js';
 import { logEvent } from '../services/events.js';
 import { readFile } from '../services/storage.js';
 import { sendPdf } from '../services/documents.js';
-import { notFound, parse, randomToken } from '../utils/http.js';
+import { notFound, pagination, parse, randomToken } from '../utils/http.js';
 import { env } from '../config/env.js';
 
 const r = Router();
@@ -15,6 +15,14 @@ r.use(requireAuth);
 
 r.get('/', requirePermission('template.create'), async (req, res) => {
   res.json({ templates: (await listTemplates(req.user.id)).map(templateDto) });
+});
+
+// All documents signed by clients through this user's templates.
+r.get('/submissions', requirePermission('submission.read'), async (req, res) => {
+  const rows = await listOwnerSubmissions(req.user.id, pagination(req.query, 500));
+  res.json({
+    submissions: rows.map((s) => ({ ...submissionDto(s), templateName: s.template_name, documentTitle: s.document_title, pageCount: s.page_count })),
+  });
 });
 
 r.post('/', requirePermission('template.create'), async (req, res) => {
