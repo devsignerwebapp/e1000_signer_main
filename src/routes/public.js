@@ -23,6 +23,7 @@ r.get('/config', (_req, res) => {
     passwordReset: env.mailEnabled,
     // Only revealed while email is off — it is the code every new user must type.
     otpFallbackCode: env.mailEnabled ? null : env.otpFallbackCode,
+    commit: env.deployedCommit, // which commit is running (diagnostics, no secrets)
   });
 });
 

@@ -48,11 +48,15 @@ export const env = {
   otpMaxAttempts: num(process.env.OTP_MAX_ATTEMPTS, 5),
   otpResendCooldown: num(process.env.OTP_RESEND_COOLDOWN_SECONDS, 60),
 
-  // Master email switch. When false (e.g. hosting without email), nothing is sent: confirmation
-  // codes become the fixed OTP_FALLBACK_CODE (shown in the UI), and password reset by email is disabled.
-  // Set MAIL_ENABLED=true (and configure MAIL_TRANSPORT below) to turn real emails back on.
-  mailEnabled: bool(process.env.MAIL_ENABLED, true),
-  otpFallbackCode: /^\d{4}$/.test(process.env.OTP_FALLBACK_CODE || '') ? process.env.OTP_FALLBACK_CODE : '0000',
+  // ── EMAIL IS SWITCHED OFF IN CODE ─────────────────────────────────────────────────────────
+  // The hosting plan cannot send email, so nothing is sent, the confirmation code is ALWAYS "0000"
+  // (the UI tells users), and password reset by email is disabled.
+  // No environment variable can change this. To turn real emails back on later, replace the line
+  // below with the commented one (then MAIL_ENABLED=true + MAIL_TRANSPORT decide):
+  //   mailEnabled: bool(process.env.MAIL_ENABLED, true),
+  mailEnabled: false,
+  otpFallbackCode: '0000',
+  deployedCommit: (process.env.RENDER_GIT_COMMIT || '').slice(0, 7) || null,
 
   smtp: {
     host: process.env.SMTP_HOST || 'smtp.gmail.com',
