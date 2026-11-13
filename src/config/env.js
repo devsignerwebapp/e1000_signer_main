@@ -48,7 +48,14 @@ export const env = {
     user: process.env.SMTP_USER || '',
     pass: process.env.SMTP_PASS || '',
     from: process.env.MAIL_FROM || process.env.SMTP_USER || '',
+    // Sender for verification / password-reset codes (falls back to MAIL_FROM's address with a "Confirm" name).
+    fromConfirm: process.env.MAIL_FROM_CONFIRM || '',
     replyTo: process.env.MAIL_REPLY_TO || '',
+    // smtp (default; blocked on Render's free plan) | brevo | resend — the last two use HTTPS APIs.
+    transport: (process.env.MAIL_TRANSPORT || 'smtp').toLowerCase(),
+    brevoApiKey: process.env.BREVO_API_KEY || '',
+    resendApiKey: process.env.RESEND_API_KEY || '',
+    timeoutMs: num(process.env.MAIL_TIMEOUT_MS, 15000),
   },
 
   admin: {

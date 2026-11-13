@@ -1,12 +1,72 @@
 import nodemailer from 'nodemailer';
 import { env } from '../config/env.js';
 
-const transporter = nodemailer.createTransport({
+// ── Transports ──────────────────────────────────────────────────────────
+// smtp  : nodemailer (Gmail etc.). Outbound SMTP ports are blocked on some hosts (e.g. Render free plan).
+// brevo : HTTPS API, free tier, works with a single verified sender address (even a Gmail).
+// resend: HTTPS API, needs a verified domain to email arbitrary recipients.
+const smtp = nodemailer.createTransport({
   host: env.smtp.host,
   port: env.smtp.port,
   secure: env.smtp.secure,
   auth: { user: env.smtp.user, pass: env.smtp.pass },
+  connectionTimeout: env.smtp.timeoutMs,
+  greetingTimeout: env.smtp.timeoutMs,
+  socketTimeout: env.smtp.timeoutMs,
 });
+
+/** "Name <a@b.c>" | "a@b.c" → { name, email } */
+function parseAddress(s = '') {
+  const m = /^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/.exec(s);
+  return m ? { name: m[1].trim(), email: m[2].trim() } : { name: '', email: s.trim() };
+}
+const formatAddress = ({ name, email }) => (name ? `"${name.replace(/"/g, '')}" <${email}>` : email);
+
+/** Sender for a kind of email: codes use MAIL_FROM_CONFIRM, or MAIL_FROM's address named "<App> Confirm". */
+function senderFor(kind) {
+  if (kind === 'confirm') {
+    if (env.smtp.fromConfirm) return parseAddress(env.smtp.fromConfirm);
+    return { name: `${env.appName} Confirm`, email: parseAddress(env.smtp.from).email };
+  }
+  const from = parseAddress(env.smtp.from);
+  return { name: from.name || env.appName, email: from.email };
+}
+
+async function postJson(url, headers, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...headers },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(env.smtp.timeoutMs),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 300)}`);
+}
+
+async function deliver({ from, to, subject, html, text }) {
+  const replyTo = env.smtp.replyTo ? parseAddress(env.smtp.replyTo) : null;
+  switch (env.smtp.transport) {
+    case 'brevo':
+      return postJson('https://api.brevo.com/v3/smtp/email', { 'api-key': env.smtp.brevoApiKey }, {
+        sender: { name: from.name, email: from.email },
+        to: [{ email: to }],
+        subject,
+        htmlContent: html,
+        textContent: text,
+        ...(replyTo ? { replyTo: { email: replyTo.email, name: replyTo.name || undefined } } : {}),
+      });
+    case 'resend':
+      return postJson('https://api.resend.com/emails', { Authorization: `Bearer ${env.smtp.resendApiKey}` }, {
+        from: formatAddress(from),
+        to: [to],
+        subject,
+        html,
+        text,
+        ...(replyTo ? { reply_to: replyTo.email } : {}),
+      });
+    default:
+      return smtp.sendMail({ from: formatAddress(from), replyTo: env.smtp.replyTo || undefined, to, subject, html, text });
+  }
+}
 
 export const LOCALES = ['en', 'az'];
 export const normLocale = (l) => (LOCALES.includes(String(l || '').slice(0, 2).toLowerCase()) ? String(l).slice(0, 2).toLowerCase() : 'en');
@@ -81,12 +141,12 @@ function layout(lang, title, bodyHtml) {
 const button = (href, label) =>
   `<a href="${esc(href)}" style="display:inline-block;margin:18px 0;padding:12px 22px;border-radius:12px;background:#5b6cff;color:#fff;text-decoration:none;font-weight:600">${esc(label)}</a>`;
 
-async function send({ to, subject, html, text }) {
+async function send({ to, subject, html, text, kind = 'notify' }) {
   try {
-    await transporter.sendMail({ from: env.smtp.from, replyTo: env.smtp.replyTo || undefined, to, subject, html, text });
+    await deliver({ from: senderFor(kind), to, subject, html, text });
     return true;
   } catch (e) {
-    console.error('[mail] send failed:', e.message);
+    console.error(`[mail] ${env.smtp.transport} send failed:`, e.message);
     return false;
   }
 }
@@ -97,6 +157,7 @@ export async function sendOtpEmail({ to, name, code, purpose, lang }) {
   if (env.nodeEnv !== 'production') console.log(`[mail:dev] OTP for ${to} (${purpose}, ${normLocale(lang)}): ${code}`);
   const digits = code.split('').map((d) => `<span style="display:inline-block;width:46px;height:56px;line-height:56px;margin:0 4px;border-radius:12px;background:#eef1ff;font-size:28px;font-weight:700;color:#3b46d6">${d}</span>`).join('');
   return send({
+    kind: 'confirm',
     to,
     subject: isReset ? L.otpSubjectReset(code, env.appName) : L.otpSubjectVerify(code, env.appName),
     text: L.otpText(name, env.appName, code, env.otpTtlMinutes),
