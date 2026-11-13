@@ -2,7 +2,14 @@ import 'dotenv/config';
 import path from 'node:path';
 
 const num = (v, d) => (v === undefined || v === '' ? d : Number(v));
-const bool = (v, d) => (v === undefined ? d : String(v).toLowerCase() === 'true');
+// Tolerant boolean: ignores surrounding spaces/quotes; true|1|yes|on → true, false|0|no|off → false.
+const bool = (v, d) => {
+  if (v === undefined) return d;
+  const s = String(v).trim().replace(/^["']|["']$/g, '').toLowerCase();
+  if (['true', '1', 'yes', 'on'].includes(s)) return true;
+  if (['false', '0', 'no', 'off'].includes(s)) return false;
+  return d;
+};
 
 function required(name) {
   const v = process.env[name];

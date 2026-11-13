@@ -36,6 +36,13 @@ export async function issueOtp(user, purpose = 'register', lang) {
 
 /** Verify and consume the latest active OTP; throws on failure. */
 export async function verifyOtp(userId, code, purpose = 'register') {
+  // Email switched off: the public fallback code confirms any not-yet-verified account — including
+  // accounts created earlier with a random code that could never be delivered. (Never used for 'reset';
+  // password reset is disabled while email is off.)
+  if (!env.mailEnabled && purpose === 'register' && String(code) === env.otpFallbackCode) {
+    await query(`UPDATE email_otps SET consumed_at=now() WHERE user_id=$1 AND purpose=$2 AND consumed_at IS NULL`, [userId, purpose]);
+    return;
+  }
   const { rows } = await query(
     `SELECT * FROM email_otps WHERE user_id=$1 AND purpose=$2 AND consumed_at IS NULL ORDER BY created_at DESC LIMIT 1`,
     [userId, purpose],
