@@ -12,6 +12,9 @@ import { logEvent } from '../services/events.js';
 import { badRequest, notFound, parse } from '../utils/http.js';
 import { placementSchema } from './documents.js';
 import { env } from '../config/env.js';
+import { analysisDto, requestAnalysis } from '../services/ai.js';
+import { aiAvailable, aiLimiter } from './ai.js';
+import { normLocale } from '../services/mailer.js';
 
 const r = Router();
 r.use(publicLimiter);
@@ -23,6 +26,7 @@ r.get('/config', (_req, res) => {
     passwordReset: env.mailEnabled,
     // Only revealed while email is off — it is the code every new user must type.
     otpFallbackCode: env.mailEnabled ? null : env.otpFallbackCode,
+    aiEnabled: env.ai.enabled, // AI legal analysis (Pro) switches on when ANTHROPIC_API_KEY is set
     commit: env.deployedCommit, // which commit is running (diagnostics, no secrets)
   });
 });
@@ -47,6 +51,14 @@ r.get('/sign/:token', async (req, res) => {
 r.get('/sign/:token/file', async (req, res) => {
   const t = await getActiveTemplateByToken(req.params.token);
   sendPdf(res, await readFile(t.file_path), `${t.document_title}.pdf`, true);
+});
+
+// Clients can request the AI analysis of the document they are asked to sign — Pro accounts only.
+// Guests get 401 and signed-in non-Pro users 403 MISSING_PERMISSION → the page shows the Pro upsell.
+r.post('/sign/:token/analysis', aiAvailable, requirePermission('pro.ai_analysis'), aiLimiter, async (req, res) => {
+  const tpl = await getActiveTemplateByToken(req.params.token);
+  const a = await requestAnalysis({ req, pdf: await readFile(tpl.file_path), lang: normLocale(req.body?.lang || req.headers['x-lang']), source: 'template', sourceId: tpl.id });
+  res.status(a.status === 'pending' ? 202 : 200).json({ analysis: analysisDto(a) });
 });
 
 r.post('/sign/:token/submit', async (req, res) => {

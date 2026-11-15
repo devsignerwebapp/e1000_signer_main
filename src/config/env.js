@@ -81,6 +81,14 @@ export const env = {
     name: process.env.ADMIN_NAME || 'Administrator',
   },
 
+  // AI legal analysis (Pro). Unavailable until ANTHROPIC_API_KEY is set — then it switches on automatically.
+  ai: {
+    apiKey: process.env.ANTHROPIC_API_KEY || '',
+    enabled: !!process.env.ANTHROPIC_API_KEY,
+    model: process.env.AI_MODEL || 'claude-opus-5-5',
+    effort: process.env.AI_EFFORT || 'high', // low | medium | high | xhigh | max
+  },
+
   maxUploadBytes: num(process.env.MAX_UPLOAD_MB, 20) * 1024 * 1024,
   storageDir: path.resolve(process.env.STORAGE_DIR || './storage'),
 };

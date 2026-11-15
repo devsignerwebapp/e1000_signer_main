@@ -4,6 +4,9 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { uploadPdf } from '../middleware/common.js';
 import { createDocument, deleteDocument, documentDto, getOwnedDocument, listDocuments, sendPdf, signDocument, signedName } from '../services/documents.js';
 import { readFile } from '../services/storage.js';
+import { analysisDto, requestAnalysis } from '../services/ai.js';
+import { aiAvailable, aiLimiter } from './ai.js';
+import { normLocale } from '../services/mailer.js';
 import { badRequest, pagination, parse } from '../utils/http.js';
 
 const r = Router();
@@ -48,6 +51,13 @@ r.get('/:id/download', requirePermission('document.read'), async (req, res) => {
   const doc = await getOwnedDocument(req.user.id, req.params.id);
   const signed = req.query.version !== 'original' && doc.signed_path;
   sendPdf(res, await readFile(signed ? doc.signed_path : doc.file_path), signed ? signedName(doc) : doc.original_name);
+});
+
+// AI legal analysis (Pro) of the original PDF. Returns 202 + { analysis } — poll GET /api/ai/analyses/:id.
+r.post('/:id/analysis', aiAvailable, requirePermission('pro.ai_analysis'), aiLimiter, async (req, res) => {
+  const doc = await getOwnedDocument(req.user.id, req.params.id);
+  const a = await requestAnalysis({ req, pdf: await readFile(doc.file_path), lang: normLocale(req.body?.lang || req.headers['x-lang']), source: 'document', sourceId: doc.id, refresh: req.body?.refresh === true });
+  res.status(a.status === 'pending' ? 202 : 200).json({ analysis: analysisDto(a) });
 });
 
 r.delete('/:id', requirePermission('document.delete'), async (req, res) => {

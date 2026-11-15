@@ -31,6 +31,7 @@ export const PERMISSIONS = [
   { code: 'pro.custom_branding', category: 'pro', description: '(planned) Custom logo/colors on signing pages and emails' },
   { code: 'pro.unlimited_documents', category: 'pro', description: '(planned) No document quota' },
   { code: 'pro.audit_certificate', category: 'pro', description: '(planned) Attach an audit-trail certificate page' },
+  { code: 'pro.ai_analysis', category: 'pro', description: 'AI legal analysis of documents (Claude)' },
   // admin
   { code: 'admin.dashboard.view', category: 'admin', description: 'Open the /admin dashboard' },
   { code: 'admin.events.view', category: 'admin', description: 'View all platform events' },

@@ -13,6 +13,7 @@ import publicRoutes from './routes/public.js';
 import accountRoutes from './routes/account.js';
 import adminRoutes from './routes/admin.js';
 import v1Routes from './routes/v1.js';
+import aiRoutes from './routes/ai.js';
 import { embedScript } from './routes/embed.js';
 
 const app = express();
@@ -41,6 +42,7 @@ app.use('/api/documents', documentRoutes);
 app.use('/api/templates', templateRoutes);
 app.use('/api/account', accountRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/ai', aiRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
